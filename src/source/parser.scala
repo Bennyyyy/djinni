@@ -19,7 +19,7 @@ package djinni
 import java.io.{File, InputStreamReader, FileInputStream}
 
 import djinni.ast.Interface.Method
-import djinni.ast.Record.DerivingType.DerivingType
+import djinni.ast.Record.DerivingType._
 import djinni.syntax._
 import djinni.ast._
 import scala.collection.mutable
@@ -102,12 +102,16 @@ private object IdlParser extends RegexParsers {
     case doc~ident => Enum.Option(ident, doc)
   }
 
-  def interface: Parser[Interface] = "interface" ~> extInterface ~ bracesList(method | const) ^^ {
-    case ext~items => {
+  def interface: Parser[Interface] = "interface" ~> extInterface ~ bracesList(method | const) ~ opt(inherit) ^^ {
+    case ext~items~inherit => {
       val methods = items collect {case m: Method => m}
       val consts = items collect {case c: Const => c}
-      Interface(ext, methods, consts)
+      val parentInterface = inherit.orNull
+      Interface(ext, methods, consts, parentInterface)
     }
+  }
+  def inherit: Parser[String] = ":" ~> ident ^^ {
+    _.name
   }
 
   def staticLabel: Parser[Boolean] = ("static ".r | "".r) ^^ {

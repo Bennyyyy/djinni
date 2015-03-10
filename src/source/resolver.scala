@@ -16,16 +16,12 @@
 
 package djinni
 
-import java.util
-
 import djinni.ast.Record.DerivingType
-import djinni.ast.Record.DerivingType.DerivingType
-import djinni.ast.Record.DerivingType.DerivingType
-import djinni.syntax._
 import djinni.ast._
 import djinni.meta._
-import scala.collection.immutable
-import scala.collection.mutable
+import djinni.syntax._
+
+import scala.collection.{immutable, mutable}
 import scala.collection.mutable.ArrayBuffer
 
 package object resolver {

@@ -1,18 +1,18 @@
 /**
-  * Copyright 2014 Dropbox, Inc.
-  *
-  * Licensed under the Apache License, Version 2.0 (the "License");
-  * you may not use this file except in compliance with the License.
-  * You may obtain a copy of the License at
-  *
-  *    http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
+ * Copyright 2014 Dropbox, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package djinni
 
@@ -33,11 +33,15 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
 
     spec.javaAnnotation.foreach(pkg => java.add(pkg))
 
-    def find(ty: TypeRef) { find(ty.resolved) }
+    def find(ty: TypeRef) {
+      find(ty.resolved)
+    }
+
     def find(tm: MExpr) {
       tm.args.map(find).mkString("<", ", ", ">")
       find(tm.base)
     }
+
     def find(m: Meta) = m match {
       case o: MOpaque =>
         o match {
@@ -79,8 +83,9 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
         w.w(s"${idJava.ty(enumMdef.name)}.${idJava.enum(e)}")
       }
       case v: ConstRef => w.w(idJava.const(v))
-      case z: Map[_, _] => { // Value is record
-      val recordMdef = ty.resolved.base.asInstanceOf[MDef]
+      case z: Map[_, _] => {
+        // Value is record
+        val recordMdef = ty.resolved.base.asInstanceOf[MDef]
         val record = recordMdef.body.asInstanceOf[Record]
         val vMap = z.asInstanceOf[Map[String, Any]]
         w.wl(s"new ${idJava.ty(recordMdef.name)}(")
@@ -88,7 +93,9 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
         // Use exact sequence
         val skipFirst = SkipFirst()
         for (f <- record.fields) {
-          skipFirst {w.wl(",")}
+          skipFirst {
+            w.wl(",")
+          }
           writeJavaConst(w, f.ty, vMap.apply(f.ident.name))
           w.w(" /* " + idJava.field(f.ident) + " */ ")
         }
@@ -125,6 +132,7 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
 
   override def generateInterface(origin: String, ident: Ident, doc: Doc, typeParams: Seq[TypeParam], i: Interface) {
     val refs = new JavaRefs()
+    val hasParent = i.parentInterface != null
 
     i.methods.map(m => {
       m.params.map(p => refs.find(p.ty))
@@ -133,7 +141,7 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
     i.consts.map(c => {
       refs.find(c.ty)
     })
-    if (i.ext.cpp) {
+    if (i.ext.cpp && !hasParent) {
       refs.java.add("java.util.concurrent.atomic.AtomicBoolean")
     }
 
@@ -143,53 +151,71 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
       writeDoc(w, doc)
 
       javaAnnotationHeader.foreach(w.wl)
-      val isAbstractClass = i.ext.cpp || i.methods.exists(_.static) || i.consts.size > 0
+      val isAbstractClass = i.methods.exists(_.static) || i.consts.size > 0
       val classPrefix = if (isAbstractClass) "abstract class" else "interface"
       val methodPrefix = if (isAbstractClass) "abstract " else ""
-      w.w(s"public $classPrefix $javaClass$typeParamList").braced {
+      val inherit = if (hasParent) " extends " + i.parentInterface else ""
+      w.w(s"public $classPrefix $javaClass$typeParamList$inherit").braced {
         val skipFirst = SkipFirst()
         generateJavaConstants(w, i.consts)
 
         val throwException = spec.javaCppException.fold("")(" throws " + _)
         for (m <- i.methods if !m.static) {
-          skipFirst { w.wl }
+          skipFirst {
+            w.wl
+          }
           writeDoc(w, m.doc)
           val ret = m.ret.fold("void")(toJavaType(_))
           val params = m.params.map(p => toJavaType(p.ty) + " " + idJava.local(p.ident))
           w.wl(s"public $methodPrefix" + ret + " " + idJava.method(m.ident) + params.mkString("(", ", ", ")") + throwException + ";")
         }
         for (m <- i.methods if m.static) {
-          skipFirst { w.wl }
+          skipFirst {
+            w.wl
+          }
           writeDoc(w, m.doc)
           val ret = m.ret.fold("void")(toJavaType(_))
           val params = m.params.map(p => toJavaType(p.ty) + " " + idJava.local(p.ident))
-          w.wl("public static native "+ ret + " " + idJava.method(m.ident) + params.mkString("(", ", ", ")") + ";")
+          w.wl("public static native " + ret + " " + idJava.method(m.ident) + params.mkString("(", ", ", ")") + ";")
         }
         if (i.ext.cpp) {
-          w.wl
+          if(!hasParent)
+            w.wl
           javaAnnotationHeader.foreach(w.wl)
-          w.wl(s"public static final class CppProxy$typeParamList extends $javaClass$typeParamList").braced {
-            w.wl("private final long nativeRef;")
-            w.wl("private final AtomicBoolean destroyed = new AtomicBoolean(false);")
-            w.wl
-            w.wl(s"private CppProxy(long nativeRef)").braced {
-              w.wl("if (nativeRef == 0) throw new RuntimeException(\"nativeRef is zero\");")
-              w.wl(s"this.nativeRef = nativeRef;")
+          val inheritanceKeyword = if (isAbstractClass) "extends" else "implements"
+          val extendedClass = if (hasParent) " extends " + i.parentInterface + ".CppProxy" else ""
+          w.wl(s"public static class CppProxy$typeParamList$extendedClass " + inheritanceKeyword + s" $javaClass$typeParamList").braced {
+            if (!hasParent) {
+              w.wl("protected final long nativeRef;")
+              w.wl("protected final AtomicBoolean destroyed = new AtomicBoolean(false);")
+              w.wl
             }
-            w.wl
-            w.wl("private native void nativeDestroy(long nativeRef);")
-            w.wl("public void destroy()").braced {
-              w.wl("boolean destroyed = this.destroyed.getAndSet(true);")
-              w.wl("if (!destroyed) nativeDestroy(this.nativeRef);")
+            w.wl(s"protected CppProxy(long nativeRef)").braced {
+              if (hasParent) {
+                w.wl("super(nativeRef);")
+              }
+              else {
+                w.wl("if (nativeRef == 0) throw new RuntimeException(\"nativeRef is zero\");")
+                w.wl(s"this.nativeRef = nativeRef;")
+              }
             }
-            w.wl("protected void finalize() throws java.lang.Throwable").braced {
-              w.wl("destroy();")
-              w.wl("super.finalize();")
+            if (!hasParent) {
+              w.wl
+              w.wl("protected native void nativeDestroy(long nativeRef);")
+              w.wl("public void destroy()").braced {
+                w.wl("boolean destroyed = this.destroyed.getAndSet(true);")
+                w.wl("if (!destroyed) nativeDestroy(this.nativeRef);")
+              }
+              w.wl("protected void finalize() throws java.lang.Throwable").braced {
+                w.wl("destroy();")
+                w.wl("super.finalize();")
+              }
             }
-            for (m <- i.methods if !m.static) { // Static methods not in CppProxy
-            val ret = m.ret.fold("void")(toJavaType(_))
+            for (m <- i.methods if !m.static) {
+              // Static methods not in CppProxy
+              val ret = m.ret.fold("void")(toJavaType(_))
               val returnStmt = m.ret.fold("")(_ => "return ")
-              val params = m.params.map(p => toJavaType(p.ty)+" "+idJava.local(p.ident)).mkString(", ")
+              val params = m.params.map(p => toJavaType(p.ty) + " " + idJava.local(p.ident)).mkString(", ")
               val args = m.params.map(p => idJava.local(p.ident)).mkString(", ")
               val meth = idJava.method(m.ident)
               w.wl
@@ -240,7 +266,9 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
         w.wl(s"public ${idJava.ty(javaName)}(").nestedN(2) {
           val skipFirst = SkipFirst()
           for (f <- r.fields) {
-            skipFirst { w.wl(",") }
+            skipFirst {
+              w.wl(",")
+            }
             w.w(toJavaType(f.ty) + " " + idJava.local(f.ident))
           }
           w.wl(") {")
@@ -272,7 +300,9 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
             w.w(s"return ").nestedN(2) {
               val skipFirst = SkipFirst()
               for (f <- r.fields) {
-                skipFirst { w.wl(" &&") }
+                skipFirst {
+                  w.wl(" &&")
+                }
                 f.ty.resolved.base match {
                   case MBinary => w.w(s"java.util.Arrays.equals(${idJava.field(f.ident)}, other.${idJava.field(f.ident)})")
                   case MList | MSet | MMap => w.w(s"this.${idJava.field(f.ident)}.equals(other.${idJava.field(f.ident)})")
@@ -334,6 +364,7 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
   }
 
   def toJavaType(ty: TypeRef, packageName: Option[String] = None): String = toJavaType(ty.resolved, packageName)
+
   def toJavaType(tm: MExpr, packageName: Option[String]): String = {
     def f(tm: MExpr, needRef: Boolean): String = {
       tm.base match {

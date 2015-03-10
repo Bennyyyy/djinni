@@ -22,6 +22,7 @@ import djinni.meta.MExpr
 import djinni.syntax.Loc
 
 case class IdlFile(imports: Seq[File], typeDecls: Seq[TypeDecl])
+case class TypeDecl(ident: Ident, params: Seq[TypeParam], body: TypeDef, doc: Doc, origin: String)
 
 case class Ident(name: String, file: File, loc: Loc)
 class ConstRef(ident: Ident) extends Ident(ident.name, ident.file, ident.loc)
@@ -31,7 +32,6 @@ case class TypeParam(ident: Ident)
 
 case class Doc(lines: Seq[String])
 
-case class TypeDecl(ident: Ident, params: Seq[TypeParam], body: TypeDef, doc: Doc, origin: String)
 
 case class Ext(java: Boolean, cpp: Boolean, objc: Boolean)
 
@@ -57,7 +57,7 @@ object Record {
   }
 }
 
-case class Interface(ext: Ext, methods: Seq[Interface.Method], consts: Seq[Const]) extends TypeDef
+case class Interface(ext: Ext, methods: Seq[Interface.Method], consts: Seq[Const], parentInterface: String) extends TypeDef
 object Interface {
   case class Method(ident: Ident, params: Seq[Field], ret: Option[TypeRef], doc: Doc, static: Boolean, const: Boolean)
 }
