@@ -300,16 +300,14 @@ class CppGenerator(spec: Spec) extends Generator(spec) {
 
     val self = idCpp.ty(ident)
 
+    var inherit = ""
+    if(i.parentInterface != null) {
+      refs.hpp.add("#include " + q(spec.cppIncludePrefix + i.parentInterface + "." + spec.cppHeaderExt))
+      inherit = " : public virtual " + i.parentInterface
+    }
+
     writeHppFile(ident, origin, refs.hpp, refs.hppFwds, w => {
       writeDoc(w, doc)
-
-      var inherit = ""
-      if(i.parentInterface != null) {
-        w.wl("#include " + q(spec.cppIncludePrefix + i.parentInterface + "." + spec.cppHeaderExt))
-        w.wl
-
-        inherit = " : public virtual " + i.parentInterface
-      }
 
       writeCppTypeParams(w, typeParams)
       w.w(s"class $self" + inherit).bracedSemi {
