@@ -9,5 +9,14 @@
       <parameter value="-Xmax-classfile-name" />
       <parameter value="143" />
     </parameters>
+    <profile name="SBT 1" modules="src">
+      <option name="deprecationWarnings" value="true" />
+      <option name="uncheckedWarnings" value="true" />
+      <option name="featureWarnings" value="true" />
+      <parameters>
+        <parameter value="-Xmax-classfile-name" />
+        <parameter value="143" />
+      </parameters>
+    </profile>
   </component>
 </project>

@@ -180,6 +180,9 @@ abstract class Generator(spec: Spec)
   protected val writtenFiles = mutable.HashMap[String,String]()
 
   protected def createFile(folder: File, fileName: String, f: IndentWriter => Unit) {
+    if(!folder.exists())
+      folder.mkdir()
+
     val file = new File(folder, fileName)
     val cp = file.getCanonicalPath
     writtenFiles.put(cp.toLowerCase, cp) match {

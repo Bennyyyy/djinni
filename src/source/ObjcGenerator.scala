@@ -1,39 +1,43 @@
 /**
-  * Copyright 2014 Dropbox, Inc.
-  *
-  * Licensed under the Apache License, Version 2.0 (the "License");
-  * you may not use this file except in compliance with the License.
-  * You may obtain a copy of the License at
-  *
-  *    http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
+ * Copyright 2014 Dropbox, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package djinni
+
+import java.io.File
 
 import djinni.ast.Record.DerivingType
 import djinni.ast._
 import djinni.generatorTools._
 import djinni.meta._
-import djinni.syntax.Error
 import djinni.writer.IndentWriter
 
 import scala.collection.mutable
-import scala.collection.parallel.immutable
 
 class ObjcGenerator(spec: Spec) extends Generator(spec) {
+  var createInPublicFolder = false;
 
   class ObjcRefs() {
     var body = mutable.TreeSet[String]()
     var header = mutable.TreeSet[String]()
     var privHeader = mutable.TreeSet[String]()
 
-    def find(ty: TypeRef) { find(ty.resolved) }
+    def find(ty: TypeRef) {
+      find(ty.resolved)
+    }
+
     def find(tm: MExpr) {
       tm.args.map(find).mkString("<", ",", ">")
       tm.base match {
@@ -46,10 +50,16 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
             header.add("#import " + q(headerName(d.name)))
           case DInterface =>
             header.add("#import <Foundation/Foundation.h>")
-            header.add("#import " + q(headerName(d.name)))
+            //header.add("#import " + q(headerName(d.name)))
+            //header.add("@class " + d.name + ";")
             val ext = d.body.asInstanceOf[Interface].ext
-            if (ext.cpp) body.add("#import " + q(privateHeaderName(d.name + "_cpp_proxy")))
-            if (ext.objc) body.add("#import " + q(privateHeaderName(d.name + "_objc_proxy")))
+            if (ext.cpp) body.add("#import " + q(privateHeaderName(d.name /* + "_cpp_proxy"*/)))
+            if (ext.objc) {
+              body.add("#import " + q(privateHeaderName(d.name /* + "_objc_proxy"*/)))
+              header.add("@protocol " + d.name + ";")
+            }
+            else
+              header.add("@class " + d.name + ";")
           case DRecord =>
             val r = d.body.asInstanceOf[Record]
             val prefix = if (r.ext.objc) "../" else ""
@@ -99,7 +109,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
     })
 
     writeObjcFile(enumTranslatorName(ident), origin, refs.body, w => {
-      w.wl(s"static_assert(__has_feature(objc_arc), " + q("Djinni requires ARC to be enabled for this file") + ");" )
+      w.wl(s"static_assert(__has_feature(objc_arc), " + q("Djinni requires ARC to be enabled for this file") + ");")
       w.wl
       w.wl(s"@implementation " + self + "Translator")
       w.wl
@@ -118,9 +128,13 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
   }
 
   def enumTranslatorName(ident: String): String = idObjc.ty(ident) + "Translator." + spec.objcExt
+
   def enumTranslatorHeaderName(ident: String): String = idObjc.ty(ident) + "Translator+Private." + spec.objcHeaderExt
+
   def headerName(ident: String): String = idObjc.ty(ident) + "." + spec.objcHeaderExt
+
   def privateHeaderName(ident: String): String = idObjc.ty(ident) + "+Private." + spec.objcHeaderExt
+
   def bodyName(ident: String): String = idObjc.ty(ident) + "." + spec.objcExt
 
   def generateObjcConstants(w: IndentWriter, consts: Seq[Const], selfName: String) = {
@@ -135,15 +149,16 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       case s: String => w.w("@" + s)
       case e: EnumValue => w.w(idObjc.enum(e.ty + "_" + e.name))
       case v: ConstRef => ty.resolved.base match {
-        case MString => w.w("[" + selfName + idObjc.const (v.name) + " copy]")
-        case _ => w.w(selfName + idObjc.const (v.name))
+        case MString => w.w("[" + selfName + idObjc.const(v.name) + " copy]")
+        case _ => w.w(selfName + idObjc.const(v.name))
       }
-      case z: Map[_, _] => { // Value is record
+      case z: Map[_, _] => {
+        // Value is record
         val recordMdef = ty.resolved.base.asInstanceOf[MDef]
         val record = recordMdef.body.asInstanceOf[Record]
         val vMap = z.asInstanceOf[Map[String, Any]]
         val head = record.fields.head
-                w.w(s"[[${idObjc.ty(recordMdef.name)} alloc] initWith${IdentStyle.camelUpper(head.ident)}:")
+        w.w(s"[[${idObjc.ty(recordMdef.name)} alloc] initWith${IdentStyle.camelUpper(head.ident)}:")
         writeObjcConst(w, head.ty, vMap.apply(head.ident))
         w.nestedN(2) {
           val skipFirst = SkipFirst()
@@ -180,11 +195,15 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
     })
 
     val self = idObjc.ty(ident)
+    val parent = i.parentInterface
+
+    if (parent != null)
+      refs.header.add("#import " + q(headerName(parent)))
 
     refs.privHeader.add("#import <Foundation/Foundation.h>")
     refs.privHeader.add("#include <memory>")
     refs.privHeader.add("!#import " + q(headerName(ident)))
-    refs.privHeader.add("!#include " + q(spec.cppFileIdentStyle(ident) + "." + spec.cppHeaderExt))
+    refs.privHeader.add("!#include <lottokitng_core/" + spec.cppFileIdentStyle(ident) + "." + spec.cppHeaderExt + ">")
 
     def writeObjcFuncDecl(method: Interface.Method, w: IndentWriter) {
       val label = if (method.static) "+" else "-"
@@ -192,19 +211,27 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       w.w(s"$label ($ret)${idObjc.method(method.ident)}")
       val skipFirst = SkipFirst()
       for (p <- method.params) {
-        skipFirst { w.w(s" ${idObjc.local(p.ident)}") }
+        skipFirst {
+          w.w(s" ${idObjc.local(p.ident)}")
+        }
         w.w(s":(${toObjcFullType(p.ty)})${idObjc.local(p.ident)}")
       }
     }
 
+    createInPublicFolder = true
     writeObjcFile(headerName(ident), origin, refs.header, w => {
       writeDoc(w, doc)
       for (c <- i.consts) {
         writeDoc(w, c.doc)
         w.wl(s"extern const ${toObjcTypeDef(c.ty)}$self${idObjc.const(c.ident)};")
       }
-      w.wl
-      w.wl(s"@protocol $self")
+      //w.wl(s"@protocol $self")
+      if (i.ext.objc)
+        w.wl(s"@protocol $self")
+      else if (parent == null)
+        w.wl(s"@interface $self : NSObject")
+      else
+        w.wl(s"@interface $self : $parent")
       for (m <- i.methods) {
         w.wl
         writeDoc(w, m.doc)
@@ -214,6 +241,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       w.wl
       w.wl("@end")
     })
+    createInPublicFolder = false
 
     refs.body.add("#import " + q(headerName(ident)))
 
@@ -223,7 +251,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       })
     }
 
-    val cppExtName = ident.name + "_cpp_proxy"
+    val cppExtName = ident.name // + "_cpp_proxy"
     val cppExtSelf = idObjc.ty(cppExtName)
     val cppName = withNs(spec.cppNamespace, idCpp.ty(ident))
     if (i.ext.cpp) {
@@ -233,19 +261,21 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       refs.body.add("#import " + q("DJIError.h"))
       refs.body.add("#include <exception>")
       refs.body.add("!#import " + q(privateHeaderName(cppExtName)))
-
+      if (parent != null)
+        refs.privHeader.add("!#import " + q(privateHeaderName(parent)))
+      /*
       writeObjcFile(headerName(cppExtName), origin, mutable.TreeSet[String](), w => {
         w.wl("#import " + q(headerName(ident)))
         w.wl("#import <Foundation/Foundation.h>")
         w.wl
         w.wl(s"@interface $cppExtSelf : NSObject <$self>")
         w.wl("@end")
-      })
+      }) */
 
       writeObjcFile(privateHeaderName(cppExtName), origin, refs.privHeader, w => {
         w.wl(s"@interface $cppExtSelf ()")
         w.wl
-        w.wl(s"@property (nonatomic, readonly) std::shared_ptr<$cppName> cppRef;")
+        w.wl(s"@property (nonatomic, readonly) std::shared_ptr<$cppName> cppRef$cppExtSelf;")
         w.wl
         w.wl(s"+ (id)${idObjc.method(ident.name + "_with_cpp")}:(const std::shared_ptr<$cppName> &)cppRef;")
         w.wl
@@ -255,14 +285,14 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       })
 
       writeObjcFile(bodyName(cppExtName), origin, refs.body, w => {
-        w.wl(s"static_assert(__has_feature(objc_arc), " + q("Djinni requires ARC to be enabled for this file") + ");" )
+        w.wl(s"static_assert(__has_feature(objc_arc), " + q("Djinni requires ARC to be enabled for this file") + ");")
         w.wl
         w.wl(s"@implementation $cppExtSelf")
         w.wl
         w.wl(s"- (id)initWithCpp:(const std::shared_ptr<$cppName> &)cppRef")
         w.braced {
-          w.w("if (self = [super init])").braced {
-            w.wl("_cppRef = cppRef;")
+          w.w("if (self = [super " + (if (parent == null) "init" else "initWithCpp:cppRef") + "])").braced {
+            w.wl(s"_cppRef$cppExtSelf = cppRef;")
           }
           w.wl("return self;")
         }
@@ -270,14 +300,14 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
         w.wl(s"- (void)dealloc")
         w.braced {
           w.wl(s"djinni::DbxCppWrapperCache<$cppName> & cache = djinni::DbxCppWrapperCache<$cppName>::getInstance();")
-          w.wl("cache.remove(_cppRef);")
+          w.wl(s"cache.remove(_cppRef$cppExtSelf);")
         }
         w.wl
         w.wl(s"+ (id)${idObjc.method(ident.name + "_with_cpp")}:(const std::shared_ptr<$cppName> &)cppRef")
         w.braced {
           w.wl(s"djinni::DbxCppWrapperCache<$cppName> & cache = djinni::DbxCppWrapperCache<$cppName>::getInstance();")
           w.wl(s"return cache.get(cppRef, [] (const std::shared_ptr<$cppName> & p) { return [[$cppExtSelf alloc] initWithCpp:p]; });")
-         }
+        }
         for (m <- i.methods) {
           w.wl
           writeObjcFuncDecl(m, w)
@@ -287,7 +317,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
                 translateObjcTypeToCpp(idObjc.local("cpp_" + p.ident.name), idObjc.local(p.ident.name), p.ty, w)
               }
               val params = m.params.map(p => "std::move(" + idObjc.local("cpp_" + p.ident.name) + ")").mkString("(", ", ", ")")
-              val cppRef = if (!m.static) "_cppRef->" else  cppName + "::"
+              val cppRef = if (!m.static) s"_cppRef$cppExtSelf->" else cppName + "::"
               m.ret match {
                 case None =>
                   w.wl(s"$cppRef${idCpp.method(m.ident)}$params;")
@@ -305,7 +335,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       })
     }
 
-    val objcExtName = ident.name + "_objc_proxy"
+    val objcExtName = ident.name /* + "_objc_proxy"*/
     val objcExtSelf = idCpp.ty(objcExtName)
     if (i.ext.objc) {
       refs.privHeader.add("#import " + q("DJIObjcWrapperCache+Private.h"))
@@ -315,6 +345,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
           w.wl(s"class $objcExtSelf final : public ${withNs(spec.cppNamespace, idCpp.ty(ident))}").bracedSemi {
             w.wl("public:")
             w.wl(s"id <$self> objcRef;")
+            //w.wl(s"$self * objcRef;")
             w.wl(s"$objcExtSelf (id objcRef);")
             w.wl(s"virtual ~$objcExtSelf () override;")
             w.wl(s"static std::shared_ptr<${withNs(spec.cppNamespace, idCpp.ty(ident.name))}> ${idCpp.method(ident.name + "_with_objc")} (id objcRef);")
@@ -358,7 +389,9 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
                 w.w("[objcRef " + idObjc.method(m.ident))
                 val skipFirst = SkipFirst()
                 for (p <- m.params) {
-                  skipFirst { w.w(" " + idObjc.local(p.ident)) }
+                  skipFirst {
+                    w.w(" " + idObjc.local(p.ident))
+                  }
                   w.w(":" + idCpp.local("cpp_" + p.ident.name))
                 }
                 w.wl("];")
@@ -455,7 +488,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
 
     writeObjcFile(bodyName(objcName), origin, refs.body, w => {
       if (r.consts.nonEmpty) generateObjcConstants(w, r.consts, noBaseSelf)
-      w.wl(s"static_assert(__has_feature(objc_arc), " + q("Djinni requires ARC to be enabled for this file") + ");" )
+      w.wl(s"static_assert(__has_feature(objc_arc), " + q("Djinni requires ARC to be enabled for this file") + ");")
       w.wl
       w.wl(s"@implementation $self")
       w.wl
@@ -510,9 +543,10 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
         }
         val skipFirst = SkipFirst()
         w.wl(s"return $cppSelf(").nestedN(2) {
-          for (f <- r.fields)
-          {
-            skipFirst { w.wl(",") }
+          for (f <- r.fields) {
+            skipFirst {
+              w.wl(",")
+            }
             w.w("std::move(" + idObjc.local(f.ident) + ")")
           }
         }
@@ -529,7 +563,9 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
           val skipFirst = SkipFirst()
           w.w(s"return ").nestedN(2) {
             for (f <- r.fields) {
-              skipFirst { w.wl(" &&") }
+              skipFirst {
+                w.wl(" &&")
+              }
               f.ty.resolved.base match {
                 case MBinary => w.w(s"[self.${idObjc.field(f.ident)} isEqualToData:typedOther.${idObjc.field(f.ident)}]")
                 case MList => w.w(s"[self.${idObjc.field(f.ident)} isEqualToArray:typedOther.${idObjc.field(f.ident)}]")
@@ -598,7 +634,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
   }
 
   def writeObjcFile(fileName: String, origin: String, refs: Iterable[String], f: IndentWriter => Unit) {
-    createFile(spec.objcOutFolder.get, fileName, (w: IndentWriter) => {
+    createFile(/*if(createInPublicFolder) new File(spec.objcOutFolder.get, "public") else new File(spec.objcOutFolder.get, "private")*/spec.objcOutFolder.get, fileName, (w: IndentWriter) => {
       w.wl("// AUTOGENERATED FILE - DO NOT MODIFY!")
       w.wl("// This file generated by Djinni from " + origin)
       w.wl
@@ -614,6 +650,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
 
   def copyObjcValue(to: String, from: String, ty: TypeRef, w: IndentWriter): Unit =
     copyObjcValue(to, from, ty.resolved, w)
+
   def copyObjcValue(to: String, from: String, tm: MExpr, w: IndentWriter): Unit = {
     def f(to: String, from: String, tm: MExpr, needRef: Boolean, w: IndentWriter, valueLevel: Int): Unit = {
       tm.base match {
@@ -680,6 +717,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
 
   def translateCppTypeToObjc(objcIdent: String, cppIdent: String, ty: TypeRef, withDecl: Boolean, w: IndentWriter): Unit =
     translateCppTypeToObjc(objcIdent, cppIdent, ty.resolved, withDecl, w)
+
   def translateCppTypeToObjc(objcIdent: String, cppIdent: String, tm: MExpr, withDecl: Boolean, w: IndentWriter): Unit = {
     def f(objcIdent: String, cppIdent: String, tm: MExpr, needRef: Boolean, withDecl: Boolean, w: IndentWriter, valueLevel: Int): Unit = {
       val objcType = if (withDecl) toObjcTypeDef(tm, needRef) else ""
@@ -767,11 +805,11 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
               case DRecord => w.wl(s"$objcType$objcIdent = [[${self} alloc] initWithCpp${IdentStyle.camelUpper(typeName)}:$cppIdent];")
               case DInterface =>
                 val ext = d.body.asInstanceOf[Interface].ext
-                val objcProxy = withNs(Some(spec.objcppNamespace), idCpp.ty(d.name + "_objc_proxy"))
+                val objcProxy = withNs(Some(spec.objcppNamespace), idCpp.ty(d.name /* + "_objc_proxy"*/))
                 (ext.cpp, ext.objc) match {
                   case (true, true) => throw new AssertionError("Function implemented on both sides")
                   case (false, false) => throw new AssertionError("Function not implemented")
-                  case (true, false) => w.wl(s"$objcType$objcIdent = [${idObjc.ty(d.name + "_cpp_proxy")} ${idObjc.method(d.name + "_with_cpp")}:$cppIdent];")
+                  case (true, false) => w.wl(s"$objcType$objcIdent = [${idObjc.ty(d.name /* + "_cpp_proxy"*/)} ${idObjc.method(d.name + "_with_cpp")}:$cppIdent];")
                   case (false, true) => w.wl(s"$objcType$objcIdent = std::static_pointer_cast<$objcProxy>($cppIdent)->objcRef;")
                 }
             }
@@ -785,6 +823,7 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
 
   def translateObjcTypeToCpp(cppIdent: String, objcIdent: String, ty: TypeRef, w: IndentWriter): Unit =
     translateObjcTypeToCpp(cppIdent, objcIdent, ty.resolved, w)
+
   def translateObjcTypeToCpp(cppIdent: String, objcIdent: String, tm: MExpr, w: IndentWriter): Unit = {
     def f(cppIdent: String, objcIdent: String, tm: MExpr, needRef: Boolean, w: IndentWriter, valueLevel: Int): Unit = {
       val cppType = toCppType(tm, spec.cppNamespace)
@@ -866,8 +905,8 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
                 (ext.cpp, ext.objc) match {
                   case (true, true) => throw new AssertionError("Function implemented on both sides")
                   case (false, false) => throw new AssertionError("Function not implemented")
-                  case (true, false) => w.wl(s"$cppType $cppIdent = [(${idObjc.ty(d.name + "_cpp_proxy")} *)$objcIdent cppRef];")
-                  case (false, true) => w.wl(s"$cppType $cppIdent = ${withNs(Some(spec.objcppNamespace), idCpp.ty(d.name + "_objc_proxy"))}" +
+                  case (true, false) => w.wl(s"$cppType $cppIdent = [(${idObjc.ty(d.name /* + "_cpp_proxy"*/)} *)$objcIdent cppRef${idObjc.ty(d.name)}];")
+                  case (false, true) => w.wl(s"$cppType $cppIdent = ${withNs(Some(spec.objcppNamespace), idCpp.ty(d.name /* + "_objc_proxy"*/))}" +
                     s"::${idCpp.method(d.name + "_with_objc")}($objcIdent);")
                 }
             }
@@ -881,8 +920,11 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
 
   // Return value: (Type_Name, Is_Class_Or_Not)
   def toObjcType(ty: TypeRef): (String, Boolean) = toObjcType(ty.resolved, false)
+
   def toObjcType(ty: TypeRef, needRef: Boolean): (String, Boolean) = toObjcType(ty.resolved, needRef)
+
   def toObjcType(tm: MExpr): (String, Boolean) = toObjcType(tm, false)
+
   def toObjcType(tm: MExpr, needRef: Boolean): (String, Boolean) = {
     def f(tm: MExpr, needRef: Boolean): (String, Boolean) = {
       tm.base match {
@@ -906,7 +948,12 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
             case d: MDef => d.defType match {
               case DEnum => if (needRef) ("NSNumber", true) else (idObjc.ty(d.name), false)
               case DRecord => (idObjc.ty(d.name), true)
-              case DInterface => (s"id <${idObjc.ty(d.name)}>", false)
+              //case DInterface => (s"${idObjc.ty(d.name)} *", false)
+              //case DInterface => (s"id <${idObjc.ty(d.name)}>", false)
+              case DInterface =>
+                val ext = d.body.asInstanceOf[Interface].ext
+                if (ext.objc) (s"id <${idObjc.ty(d.name)}>", false)
+                else (s"${idObjc.ty(d.name)} *", false)
             }
             case p: MParam => throw new AssertionError("Parameter should not happen at Obj-C top level")
           }
@@ -917,16 +964,22 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
   }
 
   def toObjcFullType(ty: TypeRef): String = toObjcFullType(ty.resolved, false)
+
   def toObjcFullType(ty: TypeRef, needRef: Boolean): String = toObjcFullType(ty.resolved, needRef)
+
   def toObjcFullType(tm: MExpr): String = toObjcFullType(tm, false)
+
   def toObjcFullType(tm: MExpr, needRef: Boolean = false): String = {
     val (name, asterisk) = toObjcType(tm, needRef)
     name + (if (asterisk) " *" else "")
   }
 
   def toObjcTypeDef(ty: TypeRef): String = toObjcTypeDef(ty.resolved, false)
+
   def toObjcTypeDef(ty: TypeRef, needRef: Boolean): String = toObjcTypeDef(ty.resolved, needRef)
+
   def toObjcTypeDef(tm: MExpr): String = toObjcTypeDef(tm, false)
+
   def toObjcTypeDef(tm: MExpr, needRef: Boolean): String = {
     val (name, asterisk) = toObjcType(tm, needRef)
     name + (if (asterisk) " *" else " ")
