@@ -1,29 +1,30 @@
 /**
-  * Copyright 2014 Dropbox, Inc.
-  *
-  * Licensed under the Apache License, Version 2.0 (the "License");
-  * you may not use this file except in compliance with the License.
-  * You may obtain a copy of the License at
-  *
-  *    http://www.apache.org/licenses/LICENSE-2.0
-  *
-  * Unless required by applicable law or agreed to in writing, software
-  * distributed under the License is distributed on an "AS IS" BASIS,
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  */
+ * Copyright 2014 Dropbox, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package djinni
 
+import java.io.{File, FileOutputStream, OutputStreamWriter}
+
 import djinni.ast._
-import java.io.{OutputStreamWriter, FileOutputStream, File}
 import djinni.generatorTools._
 import djinni.meta._
-import djinni.syntax.Error
 import djinni.writer.IndentWriter
-import scala.language.implicitConversions
+
 import scala.collection.mutable
+import scala.language.implicitConversions
 
 package object generatorTools {
 
@@ -64,7 +65,9 @@ package object generatorTools {
   def preComma(s: String) = {
     if (s.isEmpty) s else ", " + s
   }
+
   def q(s: String) = '"' + s + '"'
+
   def firstUpper(token: String) = token.charAt(0).toUpper + token.substring(1)
 
   type IdentConverter = String => String
@@ -174,13 +177,12 @@ package object generatorTools {
   }
 }
 
-abstract class Generator(spec: Spec)
-{
+abstract class Generator(spec: Spec) {
 
-  protected val writtenFiles = mutable.HashMap[String,String]()
+  protected val writtenFiles = mutable.HashMap[String, String]()
 
   protected def createFile(folder: File, fileName: String, f: IndentWriter => Unit) {
-    if(!folder.exists())
+    if (!folder.exists())
       folder.mkdir()
 
     val file = new File(folder, fileName)
@@ -207,6 +209,7 @@ abstract class Generator(spec: Spec)
   }
 
   implicit def identToString(ident: Ident): String = ident.name
+
   val idCpp = spec.cppIdentStyle
   val idJava = spec.javaIdentStyle
   val idObjc = spec.objcIdentStyle
@@ -216,11 +219,18 @@ abstract class Generator(spec: Spec)
       case None => f(w)
       case Some(s) =>
         val parts = s.split("::")
-        w.wl(parts.map("namespace "+_+" {").mkString(" ")).wl
+        w.wl(parts.map("namespace " + _ + " {").mkString(" ")).wl
         f(w)
         w.wl
         w.wl(parts.map(p => "}").mkString(" ") + s"  // namespace $s")
     }
+  }
+
+  def writeTypeDef(w: IndentWriter, name: String, ns: String): Unit = {
+    val (fst, snd) = name.splitAt(6)
+    val className = snd.replace(";", "")
+    //w.wl(s"${fst}I$snd")
+    w.wl(s"typedef std::shared_ptr<$ns::$className> I$className;")
   }
 
   def writeHppFileGeneric(folder: File, namespace: Option[String], fileIdentStyle: IdentConverter)(name: String, origin: String, includes: Iterable[String], fwds: Iterable[String], f: IndentWriter => Unit, f2: IndentWriter => Unit) {
@@ -234,12 +244,37 @@ abstract class Generator(spec: Spec)
         includes.foreach(w.wl)
       }
       w.wl
+      w.wl("using namespace std;")
+
+      var ns = ""
+      namespace match {
+        case Some(tmpNs) =>
+          ns = tmpNs
+        case None =>
+      }
+
+      if (!ns.equals("djinni_generated")) {
+        w.wl
+        w.w(s"namespace $ns").bracedSemi {
+          if (fwds.nonEmpty) {
+            fwds.foreach(w.wl(_))
+          }
+          w.wl(s"class $name;")
+        }
+        if (fwds.nonEmpty) {
+          fwds.foreach(writeTypeDef(w, _, ns))
+        }
+        w.wl(s"typedef std::shared_ptr<$ns::$name> I$name;")
+      }
+
+      w.wl
       wrapNamespace(w, namespace,
         (w: IndentWriter) => {
-          if (fwds.nonEmpty) {
-            fwds.foreach(w.wl)
-            w.wl
-          }
+          /*
+                 if (fwds.nonEmpty) {
+                   fwds.foreach(writeClassDef(w, _))
+                   w.wl
+                 } */
           f(w)
         }
       )
@@ -273,27 +308,32 @@ abstract class Generator(spec: Spec)
   }
 
   def generateEnum(origin: String, ident: Ident, doc: Doc, e: Enum)
+
   def generateRecord(origin: String, ident: Ident, doc: Doc, params: Seq[TypeParam], r: Record)
+
   def generateInterface(origin: String, ident: Ident, doc: Doc, typeParams: Seq[TypeParam], i: Interface)
 
   // --------------------------------------------------------------------------
   // Render type expression
 
   def toCppType(ty: TypeRef, namespace: Option[String] = None): String = toCppType(ty.resolved, namespace)
+
   def toCppType(tm: MExpr, namespace: Option[String]): String = {
     def base(m: Meta): String = m match {
       case p: MPrimitive => p.cName
-      case MString => "std::string"
-      case MBinary => "std::vector<uint8_t>"
+      //case MString => "std::string"
+      case MString => "string"
+      case MBinary => "vector<uint8_t>"
       case MOptional => spec.cppOptionalTemplate
-      case MList => "std::vector"
-      case MSet => "std::unordered_set"
-      case MMap => "std::unordered_map"
+      case MList => "vector"
+      case MSet => "unordered_set"
+      case MMap => "unordered_map"
       case d: MDef =>
         d.defType match {
           case DEnum => withNs(namespace, idCpp.enumType(d.name))
           case DRecord => withNs(namespace, idCpp.ty(d.name))
-          case DInterface => s"std::shared_ptr<${withNs(namespace, idCpp.ty(d.name))}>"
+          //case DInterface => s"std::shared_ptr<${withNs(namespace, idCpp.ty(d.name))}>"
+          case DInterface => s"I${idCpp.ty(d.name)}"
         }
       case p: MParam => idCpp.typeParam(p.name)
     }
@@ -306,6 +346,7 @@ abstract class Generator(spec: Spec)
 
   // this can be used in c++ generation to know whether a const& should be applied to the parameter or not
   def toCppParamType(f: Field): String = toCppParamType(f, None, "")
+
   def toCppParamType(f: Field, namespace: Option[String] = None, prefix: String = ""): String = {
     val cppType = toCppType(f.ty, namespace)
     val localName = prefix + idCpp.local(f.ident);
@@ -313,10 +354,10 @@ abstract class Generator(spec: Spec)
     val valueType = cppType + " " + localName
 
     def toType(expr: MExpr): String = expr.base match {
-      case MPrimitive(_,_,_,_,_,_,_,_) => valueType
+      case MPrimitive(_, _, _, _, _, _, _, _) => valueType
       case d: MDef => d.defType match {
         case DEnum => valueType
-        case _  => refType
+        case _ => refType
       }
       case MOptional => toType(expr.args.head)
       case _ => refType
@@ -324,9 +365,9 @@ abstract class Generator(spec: Spec)
     toType(f.ty.resolved)
   }
 
-  def withNs(namespace: Option[String], t: String) = namespace.fold(t)("::"+_+"::"+t)
+  def withNs(namespace: Option[String], t: String) = namespace.fold(t)("::" + _ + "::" + t)
 
-  def withPackage(packageName: Option[String], t: String) = packageName.fold(t)(_+"."+t)
+  def withPackage(packageName: Option[String], t: String) = packageName.fold(t)(_ + "." + t)
 
   // --------------------------------------------------------------------------
 
@@ -337,7 +378,7 @@ abstract class Generator(spec: Spec)
         w.wl(s"/**${doc.lines.head} */")
       case _ =>
         w.wl("/**")
-        doc.lines.foreach (l => w.wl(s" *$l"))
+        doc.lines.foreach(l => w.wl(s" *$l"))
         w.wl(" */")
     }
   }

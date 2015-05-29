@@ -301,6 +301,7 @@ class CppGenerator(spec: Spec) extends Generator(spec) {
     val self = idCpp.ty(ident)
 
     var inherit = ""
+    refs.hpp.add("#include <memory>")
     if(i.parentInterface != null) {
       refs.hpp.add("#include " + q(spec.cppIncludePrefix + i.parentInterface + "." + spec.cppHeaderExt))
       inherit = " : public virtual " + i.parentInterface
