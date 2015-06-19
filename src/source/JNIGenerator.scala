@@ -192,7 +192,7 @@ class JNIGenerator(spec: Spec) extends Generator(spec) {
         w.wl(s"using CppType = std::shared_ptr<$selfQ>;")
         w.wl(s"using JniType = jobject;")
         w.wl
-        w.wl(s"static jobject toJava(JNIEnv* jniEnv, std::shared_ptr<$selfQ> c) { return djinni::JniClass<$fqJniClassName>::get()._toJava(jniEnv, c); }")
+        w.wl(s"static jobject toJava(JNIEnv* jniEnv, std::shared_ptr<$selfQ> c) { return djinni::JniClass<$fqJniClassName>::get()._toJava(jniEnv, c, c->getCppProxyClassName()); }")
         w.wl(s"static std::shared_ptr<$selfQ> fromJava(JNIEnv* jniEnv, jobject j) { return djinni::JniClass<$fqJniClassName>::get()._fromJava(jniEnv, j); }")
         w.wl
         if (i.ext.java) {

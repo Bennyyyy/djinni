@@ -193,6 +193,23 @@ jfieldID jniGetFieldID(jclass clazz, const char * name, const char * sig) {
     return id;
 }
 
+bool jniHasBaseClass(JNIEnv* jniEnv, const jobject j, const jclass c) {
+    return jniEnv->IsInstanceOf(j, c);
+    /*
+    jclass currentClass = jniEnv->GetObjectClass(j);
+
+    if(jniEnv->IsSameObject(currentClass, c))
+        return true;
+
+    jmethodID getClassID = jniEnv->GetMethodID(currentClass, "getClasses", "()[Ljava.lang.Class");
+    jarray classes = (jarray)jniEnv->CallObjectMethod(currentClass, getClassID);
+    jsize size = jniEnv->GetArrayLength(classes);
+
+    appkit::d("length: %i", size);
+
+    return true;*/
+}
+
 JniEnum::JniEnum(const std::string & name)
     : m_clazz { jniFindClass(name.c_str()) },
       m_staticmethValues { jniGetStaticMethodID(m_clazz.get(), "values", ("()[L" + name + ";").c_str()) },
@@ -463,7 +480,9 @@ std::shared_ptr<void> javaProxyCacheLookup(jobject obj, std::pair<std::shared_pt
 CppProxyClassInfo::CppProxyClassInfo(const char * className)
     : clazz(jniFindClass(className)),
       constructor(jniGetMethodID(clazz.get(), "<init>", "(J)V")),
-      idField(jniGetFieldID(clazz.get(), "nativeRef", "J")) {
+      idField(jniGetFieldID(clazz.get(), "nativeRef", "J")),
+      className(className) {
+    appkit::d("CppProxyClassInfo: %s", className);
 }
 
 CppProxyClassInfo::CppProxyClassInfo() : constructor{}, idField{} {

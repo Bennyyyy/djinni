@@ -16,8 +16,6 @@
 
 package djinni
 
-import java.io.File
-
 import djinni.ast.Record.DerivingType
 import djinni.ast._
 import djinni.generatorTools._
@@ -27,7 +25,8 @@ import djinni.writer.IndentWriter
 import scala.collection.mutable
 
 class ObjcGenerator(spec: Spec) extends Generator(spec) {
-  var createInPublicFolder = false;
+  var createInPublicFolder = false
+  var allIncludes = List[String]()
 
   class ObjcRefs() {
     var body = mutable.TreeSet[String]()
@@ -185,6 +184,8 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
   }
 
   override def generateInterface(origin: String, ident: Ident, doc: Doc, typeParams: Seq[TypeParam], i: Interface) {
+    allIncludes = "#import \"" + ident.name + ".h\"" :: allIncludes
+
     val refs = new ObjcRefs()
     i.methods.map(m => {
       m.params.map(p => refs.find(p.ty))
@@ -630,6 +631,14 @@ class ObjcGenerator(spec: Spec) extends Generator(spec) {
       }
       w.wl
       w.wl("@end")
+    })
+  }
+
+  def generateCommonHeaderFile(): Unit = {
+    writeObjcFile("LottoKitNG.h", null,  List(), w => {
+      for(include <- allIncludes) {
+        w.wl(include)
+      }
     })
   }
 

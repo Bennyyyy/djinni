@@ -190,7 +190,7 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
               w.wl("protected final AtomicBoolean destroyed = new AtomicBoolean(false);")
               w.wl
             }
-            w.wl(s"protected CppProxy(long nativeRef)").braced {
+            w.wl(s"public CppProxy(long nativeRef)").braced {
               if (hasParent) {
                 w.wl("super(nativeRef);")
               }
@@ -200,6 +200,10 @@ class JavaGenerator(spec: Spec) extends Generator(spec) {
               }
             }
             if (!hasParent) {
+              w.wl
+              w.wl("public long getNativeRef()").braced {
+                w.wl("return nativeRef;")
+              }
               w.wl
               w.wl("protected native void nativeDestroy(long nativeRef);")
               w.wl("public void destroy()").braced {

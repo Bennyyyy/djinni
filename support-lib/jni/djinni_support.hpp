@@ -32,7 +32,21 @@
 // jni.h should really put extern "C" in JNIEXPORT, but it doesn't. :(
 #define CJNIEXPORT extern "C" JNIEXPORT
 
+namespace appkit {
+    void d(const char *format, ...);
+
+    void i(const char *format, ...);
+
+    void w(const char *format, ...);
+
+    void e(const char *format, ...);
+}
+
 namespace djinni {
+
+    class CppInterface {
+        int getTypID() { return 1; }
+    };
 
 /*
  * Global initialization and shutdown. Call these from JNI_OnLoad and JNI_OnUnload.
@@ -210,6 +224,7 @@ GlobalRef<jclass> jniFindClass(const char * name);
 jmethodID jniGetStaticMethodID(jclass clazz, const char * name, const char * sig);
 jmethodID jniGetMethodID(jclass clazz, const char * name, const char * sig);
 jfieldID jniGetFieldID(jclass clazz, const char * name, const char * sig);
+bool jniHasBaseClass(JNIEnv* jniEnv, const jobject j, const jclass c);
 
 /*
  * Helper for maintaining shared_ptrs to wrapped Java objects.
@@ -326,6 +341,7 @@ struct CppProxyClassInfo {
     const GlobalRef<jclass> clazz;
     const jmethodID constructor;
     const jfieldID idField;
+    const char * className;
 
     CppProxyClassInfo(const char * className);
     CppProxyClassInfo();
@@ -400,17 +416,37 @@ public:
     jobject _toJava(JNIEnv* jniEnv, const std::shared_ptr<I> & c) const {
         // Case 1 - null
         if (!c) {
+            appkit::d("Case 1");
             return nullptr;
         }
 
         // Case 2 - already a JavaProxy. Only possible if Self::JavaProxy exists.
         if (jobject impl = _unwrapJavaProxy<Self>(&c)) {
+            appkit::d("Case 2");
             return jniEnv->NewLocalRef(impl);
         }
 
         // Cases 3 and 4.
         assert(m_cppProxyClass);
         return JniCppProxyCache::get(c, jniEnv, m_cppProxyClass, &newCppProxy);
+    }
+
+    jobject _toJava(JNIEnv* jniEnv, const std::shared_ptr<I> & c, const char * cppProxyClassName) const {
+        // Case 1 - null
+        if (!c) {
+            appkit::d("Case 1");
+            return nullptr;
+        }
+
+        // Case 2 - already a JavaProxy. Only possible if Self::JavaProxy exists.
+        if (jobject impl = _unwrapJavaProxy<Self>(&c)) {
+            appkit::d("Case 2");
+            return jniEnv->NewLocalRef(impl);
+        }
+
+        // Cases 3 and 4.
+        assert(m_cppProxyClass);
+        return JniCppProxyCache::get(c, jniEnv, CppProxyClassInfo(cppProxyClassName), &newCppProxy);
     }
 
     /*
@@ -429,7 +465,7 @@ public:
         // Case 2 - already a Java proxy; we just need to pull the C++ impl out. (This case
         // is only possible if we were constructed with a cppProxyClassName parameter.)
         if (m_cppProxyClass
-                && jniEnv->IsSameObject(jniEnv->GetObjectClass(j), m_cppProxyClass.clazz.get())) {
+                && jniHasBaseClass(jniEnv, j, m_cppProxyClass.clazz.get())) {
             jlong handle = jniEnv->GetLongField(j, m_cppProxyClass.idField);
             jniExceptionCheck(jniEnv);
             return CppProxyHandle<I>::get(handle);
@@ -476,6 +512,7 @@ private:
         std::unique_ptr<CppProxyHandle<I>> to_encapsulate(
                 new CppProxyHandle<I>(std::static_pointer_cast<I>(cppObj)));
         jlong handle = static_cast<jlong>(reinterpret_cast<uintptr_t>(to_encapsulate.get()));
+        appkit::d("NewObject: %s", proxyClass.className);
         jobject cppProxy = jniEnv->NewObject(proxyClass.clazz.get(),
                                              proxyClass.constructor,
                                              handle);
